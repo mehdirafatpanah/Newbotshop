@@ -36,6 +36,10 @@ def main_menu_kb(is_admin: bool, is_reseller: bool = False, is_agent_bot: bool =
         rows.append(
             [_styled_button(settings.get("btn_test", "🧪 کانفیگ تست رایگان"), settings.get("btn_test_style", ""))]
         )
+    if not is_agent_bot and settings.get("wheel_enabled", "0") == "1":
+        rows.append(
+            [_styled_button(settings.get("btn_wheel", "🎡 گردونه شانس"), settings.get("btn_wheel_style", ""))]
+        )
     rows.append(
         [_styled_button(settings.get("btn_my_orders", "📦 سفارش‌های من"), settings.get("btn_my_orders_style", ""))]
     )
@@ -168,6 +172,7 @@ ADMIN_PANEL_ITEMS = [
     ("adm_referral_settings", "🤝 تنظیمات زیرمجموعه‌گیری", "adm_referral_settings"),
     ("adm_resellers_menu", "🏪 مدیریت نمایندگان", "adm_resellers_menu"),
     ("adm_agent_bots_menu", "🤖 درخواست‌های بات نمایندگی", "adm_agent_bots_menu"),
+    ("adm_wheel_menu", "🎡 گردونه شانس", "adm_wheel_menu"),
     ("adm_edit_buttons", "✏️ ویرایش متن دکمه‌ها", "adm_edit_buttons"),
     ("adm_set_card", "💳 تنظیم شماره کارت", "adm_set_card"),
     ("adm_edit_welcome", "📝 ویرایش پیام خوش‌آمد", "adm_edit_welcome"),
@@ -527,3 +532,20 @@ def admin_agent_bots_kb(requests) -> InlineKeyboardMarkup:
             )
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm_back_panel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# ---------------------------------------------------------------------------
+# گردونه شانس
+# ---------------------------------------------------------------------------
+
+def admin_wheel_kb(enabled: bool, win_percent, discount_percent, cooldown_hours) -> InlineKeyboardMarkup:
+    status_text = "🟢 فعال (بزن غیرفعال شه)" if enabled else "🔴 غیرفعال (بزن فعال شه)"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=status_text, callback_data="adm_wheel_toggle")],
+            [InlineKeyboardButton(text=f"🎯 شانس برد: {win_percent}٪", callback_data="adm_wheel_edit_win")],
+            [InlineKeyboardButton(text=f"🎁 درصد تخفیف جایزه: {discount_percent}٪", callback_data="adm_wheel_edit_discount")],
+            [InlineKeyboardButton(text=f"⏱ فاصله بین چرخش‌ها: {cooldown_hours} ساعت", callback_data="adm_wheel_edit_cooldown")],
+            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm_back_panel")],
+        ]
+    )

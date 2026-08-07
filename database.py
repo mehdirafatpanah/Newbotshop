@@ -36,8 +36,13 @@ DEFAULT_SETTINGS = {
     "btn_wallet": "👛 کیف پول من",
     "btn_reseller_panel": "🏪 پنل نمایندگی",
     "btn_agent_bot_request": "🚀 ساخت بات نمایندگی مستقل",
+    "btn_wheel": "🎡 گردونه شانس",
     "btn_admin_panel": "⚙️ پنل مدیریت",
     "test_enabled": "1",
+    "wheel_enabled": "0",
+    "wheel_win_percent": "15",
+    "wheel_discount_percent": "10",
+    "wheel_cooldown_hours": "24",
     "card_number": "0000-0000-0000-0000",
     "card_holder": "نام صاحب حساب",
     "contact_text": "پیام خود را بنویسید تا مستقیم برای پشتیبانی ارسال شود:",
@@ -52,6 +57,7 @@ DEFAULT_SETTINGS = {
     "btn_wallet_style": "success",
     "btn_reseller_panel_style": "primary",
     "btn_agent_bot_request_style": "",
+    "btn_wheel_style": "",
     "btn_admin_panel_style": "danger",
     # سیستم زیرمجموعه‌گیری
     "referral_enabled": "1",
@@ -67,6 +73,7 @@ DEFAULT_SETTINGS = {
     "adm_referral_settings_style": "",
     "adm_resellers_menu_style": "success",
     "adm_agent_bots_menu_style": "primary",
+    "adm_wheel_menu_style": "primary",
     "adm_edit_buttons_style": "",
     "adm_set_card_style": "",
     "adm_edit_welcome_style": "",
@@ -197,6 +204,14 @@ def init_db():
                 admin_message_id INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS wheel_spins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                won INTEGER DEFAULT 0,
+                discount_code_id INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             """
         )
@@ -801,6 +816,34 @@ def compute_discount_amount(row, price: int) -> int:
     if row["fixed_amount"]:
         return min(row["fixed_amount"], price)
     return 0
+
+
+# ---------------------------------------------------------------------------
+# گردونه شانس
+# ---------------------------------------------------------------------------
+
+def get_last_wheel_spin(user_tg_id: int):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM wheel_spins WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_tg_id,)
+        ).fetchone()
+
+
+def create_wheel_spin(user_tg_id: int, won: bool, discount_code_id: int = None) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO wheel_spins (user_id, won, discount_code_id) VALUES (?, ?, ?)",
+            (user_tg_id, 1 if won else 0, discount_code_id),
+        )
+        return cur.lastrowid
+
+
+def wheel_stats():
+    """آمار کلی گردونه برای نمایش در پنل مدیریت."""
+    with get_conn() as conn:
+        total = conn.execute("SELECT COUNT(*) c FROM wheel_spins").fetchone()["c"]
+        wins = conn.execute("SELECT COUNT(*) c FROM wheel_spins WHERE won=1").fetchone()["c"]
+        return {"total": total, "wins": wins}
 
 
 # ---------------------------------------------------------------------------

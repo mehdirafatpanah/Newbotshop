@@ -4,6 +4,9 @@
 """
 
 import html
+import random
+import string
+from datetime import datetime, timedelta
 
 from aiogram import Router, F, Bot
 from aiogram.filters import CommandStart
@@ -355,6 +358,62 @@ async def get_test_config(message: Message):
 
     db.mark_test_used(message.from_user.id)
     await message.answer(f"🧪 کانفیگ تست شما:\n\n<code>{html.escape(result['link'])}</code>")
+
+
+# ---------------------------------------------------------------------------
+# گردونه شانس
+# ---------------------------------------------------------------------------
+
+def _generate_wheel_code() -> str:
+    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"LUCK{suffix}"
+
+
+@router.message(F.text.func(lambda t: t == db.get_setting("btn_wheel")))
+async def spin_wheel(message: Message, is_agent_bot: bool = False):
+    if is_agent_bot or db.get_setting("wheel_enabled", "0") != "1":
+        return
+
+    cooldown_hours = int(db.get_setting("wheel_cooldown_hours", "24") or 0)
+    last_spin = db.get_last_wheel_spin(message.from_user.id)
+    if last_spin and cooldown_hours > 0:
+        last_time = datetime.strptime(last_spin["created_at"], "%Y-%m-%d %H:%M:%S")
+        next_allowed = last_time + timedelta(hours=cooldown_hours)
+        now = datetime.utcnow()
+        if now < next_allowed:
+            remaining = next_allowed - now
+            hours, rem = divmod(int(remaining.total_seconds()), 3600)
+            minutes = rem // 60
+            await message.answer(
+                f"⏳ فعلاً نوبت چرخوندن گردونه نیست. حدود {hours} ساعت و {minutes} دقیقه‌ی دیگر دوباره امتحان کن."
+            )
+            return
+
+    spin_msg = await message.answer("🎡 گردونه در حال چرخیدن...")
+    win_percent = int(db.get_setting("wheel_win_percent", "15") or 0)
+    won = random.randint(1, 100) <= win_percent
+
+    if not won:
+        db.create_wheel_spin(message.from_user.id, won=False)
+        await spin_msg.edit_text(
+            "😔 این‌بار شانس باهات یار نبود!\n"
+            f"دوباره بعد از {cooldown_hours} ساعت می‌تونی امتحان کنی. 🍀"
+        )
+        return
+
+    discount_percent = int(db.get_setting("wheel_discount_percent", "10") or 0)
+    code = _generate_wheel_code()
+    while db.get_discount_code(code):
+        code = _generate_wheel_code()
+    code_id = db.create_discount_code(code, percent=discount_percent, max_uses=1)
+    db.create_wheel_spin(message.from_user.id, won=True, discount_code_id=code_id)
+
+    await spin_msg.edit_text(
+        "🎉 تبریک! برنده شدی!\n\n"
+        f"🎁 کد تخفیف {discount_percent}٪ درصدی مخصوص خودته:\n"
+        f"<code>{html.escape(code)}</code>\n\n"
+        "این کد فقط یک‌بار قابل استفاده‌ست. موقع خرید محصول، روی «🎟 وارد کردن کد تخفیف» بزن و واردش کن."
+    )
 
 
 # ---------------------------------------------------------------------------

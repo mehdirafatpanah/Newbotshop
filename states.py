@@ -87,3 +87,9 @@ class AgentBotRequest(StatesGroup):
     waiting_shop_name = State()
     waiting_token = State()
     waiting_admin_id = State()
+
+
+class AdminEditWheel(StatesGroup):
+    waiting_win_percent = State()
+    waiting_discount_percent = State()
+    waiting_cooldown_hours = State()
