@@ -3,7 +3,7 @@
 # پنل مدیریت متنی بات فروش کانفیگ V2Ray
 #
 # اجرای مستقیم (بدون نصب قبلی):
-#   bash <(curl -fsSL https://raw.githubusercontent.com/USERNAME/v2ray-bot/main/manage.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/mehdirafatpanah/Newbotshop/main/manage.sh)
 #
 # اجرای بعد از نصب:
 #   bash ~/v2ray_bot/manage.sh

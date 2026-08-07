@@ -4,7 +4,7 @@
 # استفاده (بعد از اینکه این فایل را در مخزن گیت‌هاب خودت گذاشتی و REPO_URL را
 # با آدرس ریپازیتوری خودت جایگزین کردی):
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/USERNAME/v2ray-bot/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/mehdirafatpanah/Newbotshop/main/install.sh)
 #
 # این اسکریپت هم برای نصب اولیه کار می‌کند و هم برای آپدیت‌های بعدی (idempotent است).
 
