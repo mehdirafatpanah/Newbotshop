@@ -30,31 +30,47 @@ logger = logging.getLogger("bot_manager")
 CHECK_INTERVAL_SECONDS = 20
 
 
-def build_dispatcher(fixed_reseller_id: Optional[int], is_agent_bot: bool) -> Dispatcher:
-    """یک Dispatcher تازه می‌سازد. fixed_reseller_id/is_agent_bot از طریق workflow_data
-    به تمام هندلرها (در صورت داشتن پارامتر هم‌نام) تزریق می‌شود تا هر بات فقط داده‌های
-    مربوط به نمایندهٔ خودش را ببیند."""
+def build_dispatcher() -> Dispatcher:
+    """یک Dispatcher مشترک می‌سازد که همه‌ی بات‌ها (اصلی + نمایندگان) از آن استفاده
+    می‌کنند؛ چون هر Router فقط یک‌بار مجاز است به یک Dispatcher وصل شود، این تابع
+    فقط یک‌بار در کل برنامه فراخوانی می‌شود. اطلاعات مخصوص هر بات (fixed_reseller_id،
+    is_agent_bot) به‌جای workflow_data ثابت، از طریق میان‌افزار زیر و بر اساس شناسه‌ی
+    همان بات که آپدیت را دریافت کرده تزریق می‌شود."""
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(handlers_admin.router)
     dp.include_router(handlers_user.router)
-    dp["fixed_reseller_id"] = fixed_reseller_id
-    dp["is_agent_bot"] = is_agent_bot
+
+    @dp.update.outer_middleware()
+    async def inject_agent_context(handler, event, data):
+        bot: Bot = data["bot"]
+        ctx = BOT_CONTEXT.get(bot.id, {})
+        data["fixed_reseller_id"] = ctx.get("fixed_reseller_id")
+        data["is_agent_bot"] = ctx.get("is_agent_bot", False)
+        return await handler(event, data)
+
     return dp
+
+
+# شناسه‌ی هر بات (bot.id) → اطلاعات مخصوص همان بات؛ چون Dispatcher مشترک است،
+# این دیکشنری جایگزینِ workflow_data ثابت قبلی شده است.
+BOT_CONTEXT: Dict[int, dict] = {}
+DISPATCHER = build_dispatcher()
 
 
 async def run_bot(token: str, fixed_reseller_id: Optional[int], is_agent_bot: bool, label: str):
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = build_dispatcher(fixed_reseller_id, is_agent_bot)
+    BOT_CONTEXT[bot.id] = {"fixed_reseller_id": fixed_reseller_id, "is_agent_bot": is_agent_bot}
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info("در حال اجرا: %s", label)
-        await dp.start_polling(bot)
+        await DISPATCHER.start_polling(bot)
     except asyncio.CancelledError:
         logger.info("متوقف شد: %s", label)
         raise
     except Exception as exc:
         logger.error("خطا در اجرای %s: %s", label, exc)
     finally:
+        BOT_CONTEXT.pop(bot.id, None)
         await bot.session.close()
 
 
