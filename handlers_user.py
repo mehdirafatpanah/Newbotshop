@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 import database as db
 import keyboards as kb
 from states import BuyFlow, ContactFlow, DiscountEntry, WalletTopup, AgentBotRequest
-from config import MAX_TEST_PER_USER
+from config import MAX_TEST_PER_USER, md_escape
 
 router = Router()
 
@@ -187,7 +187,7 @@ async def _notify_admins_of_order(bot: Bot, order_id: int, receipt_file_id: str 
 
     caption = (
         f"🧾 سفارش #{order_id}\n"
-        f"👤 کاربر: {first_name or ''} (@{username or '---'})\n"
+        f"👤 کاربر: {md_escape(first_name or '')} (@{md_escape(username or '---')})\n"
         f"🆔 آیدی عددی: `{order['user_id']}`\n"
         f"📦 محصول: {product['name']}\n"
         f"💰 قیمت پایه: {order['base_price']:,} تومان\n"
@@ -352,7 +352,7 @@ async def get_test_config(message: Message):
         return
 
     db.mark_test_used(message.from_user.id)
-    await message.answer(f"🧪 کانفیگ تست شما:\n\n`{result['link']}`", parse_mode="Markdown")
+    await message.answer(f"🧪 کانفیگ تست شما:\n\n`{md_escape(result['link'])}`", parse_mode="Markdown")
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +444,7 @@ async def receive_topup_receipt(message: Message, state: FSMContext, bot: Bot):
     user_row = db.get_user(message.from_user.id)
     caption = (
         f"👛 درخواست شارژ کیف پول #{topup_id}\n"
-        f"👤 کاربر: {user_row['first_name'] or ''} (@{user_row['username'] or '---'})\n"
+        f"👤 کاربر: {md_escape(user_row['first_name'] or '')} (@{md_escape(user_row['username'] or '---')})\n"
         f"🆔 آیدی عددی: `{message.from_user.id}`\n"
         f"💰 مبلغ: {amount:,} تومان"
     )
@@ -490,7 +490,7 @@ async def my_orders(message: Message):
         if o["status"] == "approved" and o["config_id"]:
             cfg = db.get_config_by_id(o["config_id"])
             if cfg:
-                line += f"\n🔗 `{cfg['link']}`"
+                line += f"\n🔗 `{md_escape(cfg['link'])}`"
         lines.append(line)
     await message.answer("\n\n".join(lines), parse_mode="Markdown")
 
@@ -510,7 +510,7 @@ async def contact_receive(message: Message, state: FSMContext, bot: Bot, fixed_r
     user = message.from_user
     text = (
         f"📩 پیام جدید از کاربر\n"
-        f"👤 {user.first_name or ''} (@{user.username or '---'})\n"
+        f"👤 {md_escape(user.first_name or '')} (@{md_escape(user.username or '---')})\n"
         f"🆔 `{user.id}`\n\n"
         f"✉️ {message.text or '(بدون متن / رسانه)'}"
     )
@@ -590,7 +590,7 @@ async def agent_bot_request_token(message: Message, state: FSMContext):
     await state.update_data(agent_bot_token=token, agent_bot_username=me.username)
     await state.set_state(AgentBotRequest.waiting_admin_id)
     await message.answer(
-        f"✅ بات @{me.username} شناسایی شد.\n\n"
+        f"✅ بات @{md_escape(me.username)} شناسایی شد.\n\n"
         "حالا آیدی عددی تلگرام کسی که می‌خواهد ادمین/مالک این بات باشد را ارسال کنید.\n"
         f"اگر خودتان ادمین آن باشید، همین عدد را بفرستید: `{message.from_user.id}`",
         parse_mode="Markdown",
@@ -624,9 +624,9 @@ async def agent_bot_request_admin_id(message: Message, state: FSMContext, bot: B
         f"🤖 درخواست بات نمایندگی مستقل جدید #{request_id}\n\n"
         f"👤 درخواست‌دهنده: `{message.from_user.id}`\n"
         f"🆔 آیدی ادمین بات: `{admin_id}`\n"
-        f"🏪 نام فروشگاه: {shop_name}\n"
-        f"🤖 یوزرنیم بات: @{username}\n"
-        f"🔑 توکن: `{token}`"
+        f"🏪 نام فروشگاه: {md_escape(shop_name)}\n"
+        f"🤖 یوزرنیم بات: @{md_escape(username)}\n"
+        f"🔑 توکن: `{md_escape(token)}`"
     )
     for owner_admin_id in db.list_admins():
         try:

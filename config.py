@@ -35,3 +35,15 @@ DB_PATH = "bot_database.db"
 
 # حداکثر تعداد کانفیگ تست مجاز برای هر کاربر
 MAX_TEST_PER_USER = 1
+
+
+def md_escape(text) -> str:
+    """
+    کاراکترهای خاص Markdown تلگرام (_ * ` [) را در متن‌های داینامیک/ورودی
+    کاربر (یوزرنیم، نام، لینک کانفیگ و ...) اسکیپ می‌کند تا خطای
+    "can't parse entities" رخ ندهد.
+    """
+    text = str(text)
+    for ch in ("_", "*", "`", "["):
+        text = text.replace(ch, "\\" + ch)
+    return text

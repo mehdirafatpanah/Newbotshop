@@ -7,6 +7,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
+from config import md_escape
 
 import database as db
 import keyboards as kb
@@ -551,7 +552,7 @@ async def cb_order_approve(call: CallbackQuery, bot: Bot):
     try:
         await bot.send_message(
             order["user_id"],
-            f"✅ خرید شما تایید شد!\n📦 محصول: {product['name']}\n\n🔗 کانفیگ شما:\n`{result['link']}`",
+            f"✅ خرید شما تایید شد!\n📦 محصول: {product['name']}\n\n🔗 کانفیگ شما:\n`{md_escape(result['link'])}`",
             parse_mode="Markdown",
         )
     except Exception:
