@@ -3,6 +3,8 @@
 هندلرهای مربوط به کاربر عادی
 """
 
+import html
+
 from aiogram import Router, F, Bot
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery
@@ -11,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 import database as db
 import keyboards as kb
 from states import BuyFlow, ContactFlow, DiscountEntry, WalletTopup, AgentBotRequest
-from config import MAX_TEST_PER_USER, md_escape
+from config import MAX_TEST_PER_USER
 
 router = Router()
 
@@ -47,7 +49,7 @@ async def cmd_start(message: Message, state: FSMContext, fixed_reseller_id: int 
                     reseller = db.get_reseller(agent_id)
                     if reseller and reseller["is_active"]:
                         db.set_active_reseller(message.from_user.id, agent_id)
-                        shop_notice = f"\n\n🏪 شما وارد فروشگاه «{reseller['name']}» شدید."
+                        shop_notice = f"\n\n🏪 شما وارد فروشگاه «{html.escape(reseller['name'])}» شدید."
 
     welcome = db.get_setting("welcome_text")
     await message.answer(
@@ -111,9 +113,9 @@ async def cb_product(call: CallbackQuery):
     stock = db.count_available_configs(product_id)
     wallet_credit = db.get_wallet_credit(call.from_user.id)
     text = (
-        f"📦 {product['name']}\n"
+        f"📦 {html.escape(product['name'])}\n"
         f"💰 قیمت: {product['price']:,} تومان\n"
-        f"📝 توضیحات: {product['description'] or '---'}\n"
+        f"📝 توضیحات: {html.escape(product['description']) if product['description'] else '---'}\n"
         f"📊 موجودی: {stock} عدد\n"
     )
     if wallet_credit > 0:
@@ -166,7 +168,7 @@ async def process_discount_code(message: Message, state: FSMContext):
 
     text = (
         f"✅ کد تخفیف اعمال شد!\n\n"
-        f"📦 {product['name']}\n"
+        f"📦 {html.escape(product['name'])}\n"
         f"💰 قیمت اصلی: {product['price']:,} تومان\n"
         f"🎟 تخفیف کد: {discount_amount:,} تومان\n"
     )
@@ -187,9 +189,9 @@ async def _notify_admins_of_order(bot: Bot, order_id: int, receipt_file_id: str 
 
     caption = (
         f"🧾 سفارش #{order_id}\n"
-        f"👤 کاربر: {md_escape(first_name or '')} (@{md_escape(username or '---')})\n"
-        f"🆔 آیدی عددی: `{order['user_id']}`\n"
-        f"📦 محصول: {product['name']}\n"
+        f"👤 کاربر: {html.escape(first_name or '')} (@{html.escape(username or '---')})\n"
+        f"🆔 آیدی عددی: <code>{order['user_id']}</code>\n"
+        f"📦 محصول: {html.escape(product['name'])}\n"
         f"💰 قیمت پایه: {order['base_price']:,} تومان\n"
     )
     if order["discount_amount"]:
@@ -206,13 +208,13 @@ async def _notify_admins_of_order(bot: Bot, order_id: int, receipt_file_id: str 
         try:
             if receipt_file_id:
                 sent = await bot.send_photo(
-                    admin_id, receipt_file_id, caption=caption, parse_mode="Markdown",
+                    admin_id, receipt_file_id, caption=caption,
                     reply_markup=kb.order_review_kb(order_id),
                 )
             else:
                 caption += "\n\n(بدون نیاز به رسید - مبلغ کاملاً از کیف پول/تخفیف پوشش داده شده)"
                 sent = await bot.send_message(
-                    admin_id, caption, parse_mode="Markdown", reply_markup=kb.order_review_kb(order_id),
+                    admin_id, caption, reply_markup=kb.order_review_kb(order_id),
                 )
             db.set_order_admin_message(order_id, admin_id, sent.message_id)
         except Exception:
@@ -277,8 +279,8 @@ async def cb_buy_start(call: CallbackQuery, state: FSMContext, bot: Bot):
     after_buy_text = db.get_setting("after_buy_text")
 
     text = f"{after_buy_text}\n\n"
-    text += f"💳 شماره کارت: `{card_number}`\n"
-    text += f"👤 به نام: {card_holder}\n"
+    text += f"💳 شماره کارت: <code>{html.escape(card_number)}</code>\n"
+    text += f"👤 به نام: {html.escape(card_holder)}\n"
     if discount_amount:
         text += f"🎟 تخفیف کد: {discount_amount:,} تومان\n"
     if wallet_used:
@@ -286,7 +288,7 @@ async def cb_buy_start(call: CallbackQuery, state: FSMContext, bot: Bot):
     text += f"💰 مبلغ نهایی قابل پرداخت: {order['final_price']:,} تومان\n\n"
     text += "لطفاً عکس رسید پرداخت را همینجا ارسال کنید."
 
-    await call.message.edit_text(text, parse_mode="Markdown", reply_markup=kb.cancel_kb())
+    await call.message.edit_text(text, reply_markup=kb.cancel_kb())
     await call.answer()
 
 
@@ -352,7 +354,7 @@ async def get_test_config(message: Message):
         return
 
     db.mark_test_used(message.from_user.id)
-    await message.answer(f"🧪 کانفیگ تست شما:\n\n`{md_escape(result['link'])}`", parse_mode="Markdown")
+    await message.answer(f"🧪 کانفیگ تست شما:\n\n<code>{html.escape(result['link'])}</code>")
 
 
 # ---------------------------------------------------------------------------
@@ -422,10 +424,10 @@ async def process_topup_amount(message: Message, state: FSMContext):
 
     text = (
         f"مبلغ {amount:,} تومان را به شماره کارت زیر واریز کرده و سپس عکس رسید را ارسال کنید:\n\n"
-        f"💳 شماره کارت: `{card_number}`\n"
-        f"👤 به نام: {card_holder}\n"
+        f"💳 شماره کارت: <code>{html.escape(card_number)}</code>\n"
+        f"👤 به نام: {html.escape(card_holder)}\n"
     )
-    await message.answer(text, parse_mode="Markdown", reply_markup=kb.cancel_kb())
+    await message.answer(text, reply_markup=kb.cancel_kb())
 
 
 @router.message(WalletTopup.waiting_receipt, F.photo)
@@ -444,14 +446,14 @@ async def receive_topup_receipt(message: Message, state: FSMContext, bot: Bot):
     user_row = db.get_user(message.from_user.id)
     caption = (
         f"👛 درخواست شارژ کیف پول #{topup_id}\n"
-        f"👤 کاربر: {md_escape(user_row['first_name'] or '')} (@{md_escape(user_row['username'] or '---')})\n"
-        f"🆔 آیدی عددی: `{message.from_user.id}`\n"
+        f"👤 کاربر: {html.escape(user_row['first_name'] or '')} (@{html.escape(user_row['username'] or '---')})\n"
+        f"🆔 آیدی عددی: <code>{message.from_user.id}</code>\n"
         f"💰 مبلغ: {amount:,} تومان"
     )
     for admin_id in db.list_admins():
         try:
             sent = await bot.send_photo(
-                admin_id, file_id, caption=caption, parse_mode="Markdown",
+                admin_id, file_id, caption=caption,
                 reply_markup=kb.topup_review_kb(topup_id),
             )
             db.set_topup_admin_message(topup_id, admin_id, sent.message_id)
@@ -485,14 +487,14 @@ async def my_orders(message: Message):
     lines = []
     for o in orders:
         product = db.get_product(o["product_id"])
-        pname = product["name"] if product else "نامشخص"
+        pname = html.escape(product["name"]) if product else "نامشخص"
         line = f"#{o['id']} | {pname} | {status_map.get(o['status'], o['status'])}"
         if o["status"] == "approved" and o["config_id"]:
             cfg = db.get_config_by_id(o["config_id"])
             if cfg:
-                line += f"\n🔗 `{md_escape(cfg['link'])}`"
+                line += f"\n🔗 <code>{html.escape(cfg['link'])}</code>"
         lines.append(line)
-    await message.answer("\n\n".join(lines), parse_mode="Markdown")
+    await message.answer("\n\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -510,15 +512,15 @@ async def contact_receive(message: Message, state: FSMContext, bot: Bot, fixed_r
     user = message.from_user
     text = (
         f"📩 پیام جدید از کاربر\n"
-        f"👤 {md_escape(user.first_name or '')} (@{md_escape(user.username or '---')})\n"
-        f"🆔 `{user.id}`\n\n"
-        f"✉️ {message.text or '(بدون متن / رسانه)'}"
+        f"👤 {html.escape(user.first_name or '')} (@{html.escape(user.username or '---')})\n"
+        f"🆔 <code>{user.id}</code>\n\n"
+        f"✉️ {html.escape(message.text or '(بدون متن / رسانه)')}"
     )
     # داخل بات اختصاصی یک نماینده، پیام پشتیبانی فقط برای خودِ همان نماینده ارسال می‌شود
     targets = [fixed_reseller_id] if fixed_reseller_id is not None else db.list_admins()
     for admin_id in targets:
         try:
-            await bot.send_message(admin_id, text, parse_mode="Markdown", reply_markup=kb.contact_reply_kb(user.id))
+            await bot.send_message(admin_id, text, reply_markup=kb.contact_reply_kb(user.id))
         except Exception:
             pass
     await message.answer(
@@ -590,10 +592,9 @@ async def agent_bot_request_token(message: Message, state: FSMContext):
     await state.update_data(agent_bot_token=token, agent_bot_username=me.username)
     await state.set_state(AgentBotRequest.waiting_admin_id)
     await message.answer(
-        f"✅ بات @{md_escape(me.username)} شناسایی شد.\n\n"
+        f"✅ بات @{html.escape(me.username)} شناسایی شد.\n\n"
         "حالا آیدی عددی تلگرام کسی که می‌خواهد ادمین/مالک این بات باشد را ارسال کنید.\n"
-        f"اگر خودتان ادمین آن باشید، همین عدد را بفرستید: `{message.from_user.id}`",
-        parse_mode="Markdown",
+        f"اگر خودتان ادمین آن باشید، همین عدد را بفرستید: <code>{message.from_user.id}</code>",
         reply_markup=kb.cancel_kb(),
     )
 
@@ -622,16 +623,16 @@ async def agent_bot_request_admin_id(message: Message, state: FSMContext, bot: B
 
     review_text = (
         f"🤖 درخواست بات نمایندگی مستقل جدید #{request_id}\n\n"
-        f"👤 درخواست‌دهنده: `{message.from_user.id}`\n"
-        f"🆔 آیدی ادمین بات: `{admin_id}`\n"
-        f"🏪 نام فروشگاه: {md_escape(shop_name)}\n"
-        f"🤖 یوزرنیم بات: @{md_escape(username)}\n"
-        f"🔑 توکن: `{md_escape(token)}`"
+        f"👤 درخواست‌دهنده: <code>{message.from_user.id}</code>\n"
+        f"🆔 آیدی ادمین بات: <code>{admin_id}</code>\n"
+        f"🏪 نام فروشگاه: {html.escape(shop_name or '')}\n"
+        f"🤖 یوزرنیم بات: @{html.escape(username or '')}\n"
+        f"🔑 توکن: <code>{html.escape(token or '')}</code>"
     )
     for owner_admin_id in db.list_admins():
         try:
             await bot.send_message(
-                owner_admin_id, review_text, parse_mode="Markdown",
+                owner_admin_id, review_text,
                 reply_markup=kb.agent_bot_review_kb(request_id),
             )
         except Exception:

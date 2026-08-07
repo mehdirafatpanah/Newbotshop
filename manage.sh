@@ -3,7 +3,7 @@
 # پنل مدیریت متنی بات فروش کانفیگ V2Ray
 #
 # اجرای مستقیم (بدون نصب قبلی):
-#   bash <(curl -fsSL https://raw.githubusercontent.com/mehdirafatpanah/Newbotshop/main/manage.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/USERNAME/v2ray-bot/main/manage.sh)
 #
 # اجرای بعد از نصب:
 #   bash ~/v2ray_bot/manage.sh
@@ -12,7 +12,7 @@
 # ---------------------------------------------------------------------------
 # تنظیمات قابل شخصی‌سازی
 # ---------------------------------------------------------------------------
-REPO_URL="https://github.com/mehdirafatpanah/Newbotshop.git"
+REPO_URL="https://github.com/mehdirafatpanah/Shopvpn.git"
 INSTALL_DIR="$HOME/v2ray_bot"
 SERVICE_NAME="v2raybot"
 BRAND_NAME="VPN HUNTER"

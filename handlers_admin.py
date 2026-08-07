@@ -3,11 +3,12 @@
 هندلرهای پنل مدیریت
 """
 
+import html
+
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
-from config import md_escape
 
 import database as db
 import keyboards as kb
@@ -405,7 +406,7 @@ async def cb_view_order(call: CallbackQuery, bot: Bot):
     caption = (
         f"سفارش #{order_id}\n"
         f"کاربر: {order['user_id']}\n"
-        f"محصول: {product['name'] if product else '---'}"
+        f"محصول: {html.escape(product['name']) if product else '---'}"
     )
     if order["receipt_file_id"]:
         await bot.send_photo(call.from_user.id, order["receipt_file_id"], caption=caption, reply_markup=kb.order_review_kb(order_id))
@@ -552,8 +553,7 @@ async def cb_order_approve(call: CallbackQuery, bot: Bot):
     try:
         await bot.send_message(
             order["user_id"],
-            f"✅ خرید شما تایید شد!\n📦 محصول: {product['name']}\n\n🔗 کانفیگ شما:\n`{md_escape(result['link'])}`",
-            parse_mode="Markdown",
+            f"✅ خرید شما تایید شد!\n📦 محصول: {html.escape(product['name'])}\n\n🔗 کانفیگ شما:\n<code>{html.escape(result['link'])}</code>",
         )
     except Exception:
         pass
@@ -648,9 +648,8 @@ async def process_disc_code(message: Message, state: FSMContext):
     await state.set_state(AdminCreateDiscount.waiting_type_value)
     await message.answer(
         "نوع و مقدار تخفیف را به یکی از این دو شکل ارسال کنید:\n\n"
-        "برای تخفیف درصدی: `percent 20`\n"
-        "برای تخفیف مبلغ ثابت: `fixed 50000`",
-        parse_mode="Markdown",
+        "برای تخفیف درصدی: <code>percent 20</code>\n"
+        "برای تخفیف مبلغ ثابت: <code>fixed 50000</code>",
     )
 
 
@@ -658,7 +657,7 @@ async def process_disc_code(message: Message, state: FSMContext):
 async def process_disc_type_value(message: Message, state: FSMContext):
     parts = message.text.strip().split()
     if len(parts) != 2 or parts[0].lower() not in ("percent", "fixed") or not parts[1].isdigit():
-        await message.answer("فرمت اشتباه است. مثال درست: `percent 20` یا `fixed 50000`", parse_mode="Markdown")
+        await message.answer("فرمت اشتباه است. مثال درست: <code>percent 20</code> یا <code>fixed 50000</code>")
         return
 
     kind, value = parts[0].lower(), int(parts[1])
@@ -1072,8 +1071,8 @@ async def cb_admin_admins_menu(call: CallbackQuery):
 @router.callback_query(F.data == "adm_admins_list")
 async def cb_admin_admins_list(call: CallbackQuery):
     admins = db.list_admins()
-    text = "لیست ادمین‌ها:\n" + "\n".join([f"- `{a}`" for a in admins])
-    await call.message.edit_text(text, parse_mode="Markdown", reply_markup=kb.admin_back_kb("adm_admins_menu"))
+    text = "لیست ادمین‌ها:\n" + "\n".join([f"- <code>{a}</code>" for a in admins])
+    await call.message.edit_text(text, reply_markup=kb.admin_back_kb("adm_admins_menu"))
     await call.answer()
 
 

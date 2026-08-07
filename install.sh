@@ -4,7 +4,7 @@
 # استفاده (بعد از اینکه این فایل را در مخزن گیت‌هاب خودت گذاشتی و REPO_URL را
 # با آدرس ریپازیتوری خودت جایگزین کردی):
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/mehdirafatpanah/Newbotshop/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/USERNAME/v2ray-bot/main/install.sh)
 #
 # این اسکریپت هم برای نصب اولیه کار می‌کند و هم برای آپدیت‌های بعدی (idempotent است).
 
@@ -18,7 +18,7 @@ export NEEDRESTART_SUSPEND=1
 # ============================================================================
 # تنظیمات - این خط را با آدرس مخزن گیت‌هاب خودت جایگزین کن
 # ============================================================================
-REPO_URL="https://github.com/mehdirafatpanah/Newbotshop.git"
+REPO_URL="https://github.com/mehdirafatpanah/Shopvpn.git"
 INSTALL_DIR="$HOME/v2ray_bot"
 SERVICE_NAME="v2raybot"
 
