@@ -18,7 +18,7 @@ export NEEDRESTART_SUSPEND=1
 # ============================================================================
 # تنظیمات - این خط را با آدرس مخزن گیت‌هاب خودت جایگزین کن
 # ============================================================================
-REPO_URL="https://github.com/mehdirafatpanah/Newbotshop.git"
+REPO_URL="https://github.com/mehdirafatpanah/Shopvpn.git"
 INSTALL_DIR="$HOME/v2ray_bot"
 SERVICE_NAME="v2raybot"
 
