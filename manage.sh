@@ -12,7 +12,7 @@
 # ---------------------------------------------------------------------------
 # تنظیمات قابل شخصی‌سازی
 # ---------------------------------------------------------------------------
-REPO_URL="https://github.com/mehdirafatpanah/Shopvpn.git"
+REPO_URL="https://github.com/mehdirafatpanah/Newbotshop.git"
 INSTALL_DIR="$HOME/v2ray_bot"
 SERVICE_NAME="v2raybot"
 BRAND_NAME="VPN HUNTER"
