@@ -32,6 +32,7 @@ class AdminAddProduct(StatesGroup):
     waiting_name = State()
     waiting_price = State()
     waiting_desc = State()
+    waiting_duration = State()
 
 
 class AdminAddConfigs(StatesGroup):
@@ -93,3 +94,9 @@ class AdminEditWheel(StatesGroup):
     waiting_win_percent = State()
     waiting_discount_percent = State()
     waiting_cooldown_hours = State()
+
+
+class AdminEditExpiryReminder(StatesGroup):
+    waiting_days_before = State()
+    waiting_discount_percent = State()
+    waiting_discount_hours = State()

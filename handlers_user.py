@@ -15,6 +15,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 import keyboards as kb
+import order_utils
 from states import BuyFlow, ContactFlow, DiscountEntry, WalletTopup, AgentBotRequest
 from config import MAX_TEST_PER_USER
 
@@ -259,13 +260,25 @@ async def cb_buy_start(call: CallbackQuery, state: FSMContext, bot: Bot):
     await state.update_data(discount_code_id=None, discount_amount=0, discount_product_id=None)
 
     if order["final_price"] <= 0:
-        # کاملاً از کیف پول/تخفیف پوشش داده شده؛ نیازی به رسید نیست، مستقیم برای ادمین ارسال می‌شود
+        # کاملاً از کیف پول/تخفیف پوشش داده شده: چون کیف پول قبلاً توسط ادمین تایید شده،
+        # نیازی به تایید دوباره نیست و کانفیگ همین الان و خودکار تحویل داده می‌شود.
         await state.clear()
-        await _notify_admins_of_order(bot, order_id)
-        await call.message.edit_text(
-            "✅ مبلغ سفارش شما به‌طور کامل از کیف پول/تخفیف پوشش داده شد.\n"
-            "سفارش برای تایید نهایی ادمین ارسال شد و کانفیگ به‌زودی برایتان ارسال می‌شود."
-        )
+        ok = await order_utils.deliver_order(bot, order_id)
+        if ok:
+            await call.message.edit_text(
+                "✅ مبلغ سفارش شما به‌طور کامل از کیف پول/تخفیف پوشش داده شد.\n"
+                "کانفیگ همین الان براتون ارسال شد. 🎉"
+            )
+        else:
+            # موجودی محصول تموم شده؛ پول کاربر را برگردان و به ادمین اطلاع بده
+            if wallet_used > 0:
+                db.add_wallet_credit(call.from_user.id, wallet_used)
+            if discount_code_id:
+                db.decrement_discount_usage(discount_code_id)
+            await call.message.edit_text(
+                "⛔️ متاسفانه موجودی این محصول در همین لحظه تمام شد. مبلغ کیف پول شما بازگردانده شد.\n"
+                "لطفاً کمی بعد دوباره تلاش کنید یا با پشتیبانی تماس بگیرید."
+            )
         await call.answer()
         return
 
@@ -341,7 +354,7 @@ async def receipt_wrong_type(message: Message):
 # ---------------------------------------------------------------------------
 
 @router.message(F.text.func(lambda t: t == db.get_setting("btn_test")))
-async def get_test_config(message: Message):
+async def get_test_config(message: Message, bot: Bot):
     if db.get_setting("test_enabled", "1") != "1":
         await message.answer("در حال حاضر امکان دریافت کانفیگ تست غیرفعال است.")
         return
@@ -357,17 +370,12 @@ async def get_test_config(message: Message):
         return
 
     db.mark_test_used(message.from_user.id)
-    await message.answer(f"🧪 کانفیگ تست شما:\n\n<code>{html.escape(result['link'])}</code>")
+    await order_utils.send_config_delivery(bot, message.from_user.id, "کانفیگ تست", result["link"], header="🧪 کانفیگ تست شما آماده‌ست!")
 
 
 # ---------------------------------------------------------------------------
 # گردونه شانس
 # ---------------------------------------------------------------------------
-
-def _generate_wheel_code() -> str:
-    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return f"LUCK{suffix}"
-
 
 @router.message(F.text.func(lambda t: t == db.get_setting("btn_wheel")))
 async def spin_wheel(message: Message, is_agent_bot: bool = False):
@@ -402,9 +410,7 @@ async def spin_wheel(message: Message, is_agent_bot: bool = False):
         return
 
     discount_percent = int(db.get_setting("wheel_discount_percent", "10") or 0)
-    code = _generate_wheel_code()
-    while db.get_discount_code(code):
-        code = _generate_wheel_code()
+    code = order_utils.generate_unique_discount_code("LUCK")
     code_id = db.create_discount_code(code, percent=discount_percent, max_uses=1)
     db.create_wheel_spin(message.from_user.id, won=True, discount_code_id=code_id)
 

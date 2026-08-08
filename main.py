@@ -16,6 +16,8 @@
 
 import asyncio
 import logging
+import html
+from datetime import datetime, timedelta
 from typing import Optional, Dict
 
 from aiogram import Bot, Dispatcher, BaseMiddleware
@@ -27,11 +29,13 @@ from config import BOT_TOKEN
 import database as db
 import handlers_user
 import handlers_admin
+import order_utils
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("bot_manager")
 
 CHECK_INTERVAL_SECONDS = 20
+EXPIRY_CHECK_INTERVAL_SECONDS = 3600  # هر یک ساعت چک برای یادآوری اتمام سرویس
 
 # نگاشت توکن -> اطلاعات نماینده‌ی صاحب آن بات (برای بات اصلی مقدار None/False است)
 BOT_CONTEXT: Dict[str, dict] = {}
@@ -59,6 +63,62 @@ def build_dispatcher() -> Dispatcher:
 
 def make_bot(token: str) -> Bot:
     return Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+
+def _bot_for_reseller(bots: Dict[str, Bot], reseller_id: Optional[int]) -> Bot:
+    """بات مناسب برای پیام‌دادن به مشتریِ یک محصول را برمی‌گرداند: اگر آن نماینده
+    بات اختصاصی فعال داشته باشد همان، وگرنه بات اصلی (چون آن مشتری از طریق بات
+    اصلی خرید کرده، حتی اگر محصول متعلق به یک نماینده‌ی بدون بات مستقل باشد)."""
+    token = db.get_agent_bot_token_for_reseller(reseller_id) if reseller_id else None
+    if token and token in bots:
+        return bots[token]
+    return bots[BOT_TOKEN]
+
+
+async def expiry_reminder_loop(bots: Dict[str, Bot]):
+    """هر EXPIRY_CHECK_INTERVAL_SECONDS ثانیه چک می‌کند: سفارش‌هایی که به تاریخ
+    انقضاشان نزدیک شده‌اند (طبق تنظیمات ادمین) و هنوز یادآوری نگرفته‌اند را پیدا
+    کرده، برای هرکدام یک کد تخفیفِ زمان‌دار می‌سازد و پیام یادآوری ارسال می‌کند."""
+    while True:
+        try:
+            if db.get_setting("expiry_reminder_enabled", "1") == "1":
+                days_before = int(db.get_setting("expiry_reminder_days_before", "5") or 5)
+                discount_percent = int(db.get_setting("expiry_reminder_discount_percent", "20") or 20)
+                discount_hours = int(db.get_setting("expiry_reminder_discount_hours", "24") or 24)
+
+                due_orders = db.get_orders_due_for_expiry_reminder(days_before)
+                for order in due_orders:
+                    try:
+                        product = db.get_product(order["product_id"])
+                        if not product:
+                            db.mark_expiry_reminder_sent(order["id"])
+                            continue
+
+                        expires_at = datetime.strptime(order["expires_at"], "%Y-%m-%d %H:%M:%S")
+                        days_left = max((expires_at - datetime.utcnow()).days, 0)
+
+                        code = order_utils.generate_unique_discount_code("RENEW")
+                        code_expires = (datetime.utcnow() + timedelta(hours=discount_hours)).strftime("%Y-%m-%d %H:%M:%S")
+                        db.create_discount_code(code, percent=discount_percent, max_uses=1, expires_at=code_expires)
+
+                        reseller_id = db.get_product_reseller_id(order["product_id"])
+                        bot = _bot_for_reseller(bots, reseller_id)
+
+                        await bot.send_message(
+                            order["user_id"],
+                            f"⏰ سرویس «{html.escape(product['name'])}» شما تا {days_left} روز دیگر تمام می‌شود!\n\n"
+                            f"🎁 اگر همین امروز تمدید کنید، این کد تخفیف {discount_percent}٪ به شما تعلق می‌گیرد:\n"
+                            f"<code>{code}</code>\n\n"
+                            f"⏳ این کد فقط تا {discount_hours} ساعت دیگر معتبر است، پس دست نگه ندارید!\n"
+                            "برای تمدید، از منوی «🛒 خرید کانفیگ» همین محصول را دوباره انتخاب و کد را وارد کنید.",
+                        )
+                        db.mark_expiry_reminder_sent(order["id"])
+                    except Exception as exc:
+                        logger.error("خطا در ارسال یادآوری برای سفارش #%s: %s", order["id"], exc)
+        except Exception as exc:
+            logger.error("خطا در حلقه‌ی یادآوری اتمام سرویس: %s", exc)
+
+        await asyncio.sleep(EXPIRY_CHECK_INTERVAL_SECONDS)
 
 
 async def bot_manager():
@@ -92,6 +152,7 @@ async def bot_manager():
         await start_polling_task()
 
     await start_polling_task()
+    reminder_task = asyncio.create_task(expiry_reminder_loop(bots))
 
     try:
         while True:
@@ -128,6 +189,11 @@ async def bot_manager():
             except Exception as exc:
                 logger.error("خطا در بررسی دوره‌ای بات‌های نمایندگی: %s", exc)
     finally:
+        reminder_task.cancel()
+        try:
+            await reminder_task
+        except Exception:
+            pass
         if polling_task and not polling_task.done():
             await dp.stop_polling()
             try:

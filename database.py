@@ -5,7 +5,7 @@
 """
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import contextmanager
 
 from config import DB_PATH, OWNER_ID
@@ -43,6 +43,10 @@ DEFAULT_SETTINGS = {
     "wheel_win_percent": "15",
     "wheel_discount_percent": "10",
     "wheel_cooldown_hours": "24",
+    "expiry_reminder_enabled": "1",
+    "expiry_reminder_days_before": "5",
+    "expiry_reminder_discount_percent": "20",
+    "expiry_reminder_discount_hours": "24",
     "card_number": "0000-0000-0000-0000",
     "card_holder": "نام صاحب حساب",
     "contact_text": "پیام خود را بنویسید تا مستقیم برای پشتیبانی ارسال شود:",
@@ -74,6 +78,7 @@ DEFAULT_SETTINGS = {
     "adm_resellers_menu_style": "success",
     "adm_agent_bots_menu_style": "primary",
     "adm_wheel_menu_style": "primary",
+    "adm_expiry_menu_style": "primary",
     "adm_edit_buttons_style": "",
     "adm_set_card_style": "",
     "adm_edit_welcome_style": "",
@@ -244,6 +249,10 @@ def _migrate_columns(conn):
         ("orders", "discount_amount", "INTEGER DEFAULT 0"),
         ("orders", "final_price", "INTEGER"),
         ("categories", "reseller_id", "INTEGER"),
+        ("products", "duration_days", "INTEGER"),
+        ("orders", "expires_at", "TEXT"),
+        ("orders", "expiry_reminder_sent", "INTEGER DEFAULT 0"),
+        ("discount_codes", "expires_at", "TEXT"),
     ]
     for table, col, coltype in migrations:
         if not _column_exists(conn, table, col):
@@ -398,11 +407,11 @@ def delete_category(cat_id: int):
 # محصولات
 # ---------------------------------------------------------------------------
 
-def add_product(category_id: int, name: str, price: int, description: str = "") -> int:
+def add_product(category_id: int, name: str, price: int, description: str = "", duration_days: int = None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO products (category_id, name, price, description) VALUES (?, ?, ?, ?)",
-            (category_id, name, price, description),
+            "INSERT INTO products (category_id, name, price, description, duration_days) VALUES (?, ?, ?, ?, ?)",
+            (category_id, name, price, description, duration_days),
         )
         return cur.lastrowid
 
@@ -587,10 +596,16 @@ def get_order(order_id: int):
 
 
 def approve_order(order_id: int, config_id: int):
+    order = get_order(order_id)
+    expires_at = None
+    if order:
+        product = get_product(order["product_id"])
+        if product and product["duration_days"]:
+            expires_at = (datetime.utcnow() + timedelta(days=product["duration_days"])).strftime("%Y-%m-%d %H:%M:%S")
     with get_conn() as conn:
         conn.execute(
-            "UPDATE orders SET status='approved', config_id=?, updated_at=? WHERE id=?",
-            (config_id, datetime.utcnow().isoformat(), order_id),
+            "UPDATE orders SET status='approved', config_id=?, expires_at=?, updated_at=? WHERE id=?",
+            (config_id, expires_at, datetime.utcnow().isoformat(), order_id),
         )
 
 
@@ -747,11 +762,11 @@ def reward_referrer_if_first_purchase(referred_user_tg_id: int, paid_amount: int
 # کدهای تخفیف
 # ---------------------------------------------------------------------------
 
-def create_discount_code(code: str, percent: int = None, fixed_amount: int = None, max_uses: int = 0) -> int:
+def create_discount_code(code: str, percent: int = None, fixed_amount: int = None, max_uses: int = 0, expires_at: str = None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO discount_codes (code, percent, fixed_amount, max_uses) VALUES (?, ?, ?, ?)",
-            (code.strip().upper(), percent, fixed_amount, max_uses),
+            "INSERT INTO discount_codes (code, percent, fixed_amount, max_uses, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (code.strip().upper(), percent, fixed_amount, max_uses, expires_at),
         )
         return cur.lastrowid
 
@@ -807,6 +822,12 @@ def is_discount_code_valid(row) -> bool:
         return False
     if row["max_uses"] and row["used_count"] >= row["max_uses"]:
         return False
+    if row["expires_at"]:
+        try:
+            if datetime.utcnow() > datetime.strptime(row["expires_at"], "%Y-%m-%d %H:%M:%S"):
+                return False
+        except (ValueError, TypeError):
+            pass
     return True
 
 
@@ -844,6 +865,42 @@ def wheel_stats():
         total = conn.execute("SELECT COUNT(*) c FROM wheel_spins").fetchone()["c"]
         wins = conn.execute("SELECT COUNT(*) c FROM wheel_spins WHERE won=1").fetchone()["c"]
         return {"total": total, "wins": wins}
+
+
+# ---------------------------------------------------------------------------
+# یادآوری اتمام سرویس
+# ---------------------------------------------------------------------------
+
+def get_orders_due_for_expiry_reminder(days_before: int):
+    """سفارش‌های تاییدشده‌ای که هنوز یادآوری نگرفته‌اند و تاریخ انقضاشان توی
+    بازه‌ی «از الان تا days_before روز دیگر» است (و هنوز منقضی نشده‌اند)."""
+    now = datetime.utcnow()
+    threshold = (now + timedelta(days=days_before)).strftime("%Y-%m-%d %H:%M:%S")
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM orders WHERE status='approved' AND expiry_reminder_sent=0 "
+            "AND expires_at IS NOT NULL AND expires_at > ? AND expires_at <= ?",
+            (now_str, threshold),
+        ).fetchall()
+
+
+def mark_expiry_reminder_sent(order_id: int):
+    with get_conn() as conn:
+        conn.execute("UPDATE orders SET expiry_reminder_sent=1 WHERE id=?", (order_id,))
+
+
+def get_agent_bot_token_for_reseller(reseller_id: int):
+    """اگر این نماینده بات اختصاصی فعال داشته باشد، توکنش را برمی‌گرداند، وگرنه None
+    (یعنی باید از طریق بات اصلی پیام ارسال شود)."""
+    if not reseller_id:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT bot_token FROM agent_bots WHERE admin_id=? AND status='approved' AND is_active=1 LIMIT 1",
+            (reseller_id,),
+        ).fetchone()
+        return row["bot_token"] if row else None
 
 
 # ---------------------------------------------------------------------------

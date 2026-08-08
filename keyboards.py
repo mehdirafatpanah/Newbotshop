@@ -173,6 +173,7 @@ ADMIN_PANEL_ITEMS = [
     ("adm_resellers_menu", "🏪 مدیریت نمایندگان", "adm_resellers_menu"),
     ("adm_agent_bots_menu", "🤖 درخواست‌های بات نمایندگی", "adm_agent_bots_menu"),
     ("adm_wheel_menu", "🎡 گردونه شانس", "adm_wheel_menu"),
+    ("adm_expiry_menu", "⏰ یادآوری اتمام سرویس", "adm_expiry_menu"),
     ("adm_edit_buttons", "✏️ ویرایش متن دکمه‌ها", "adm_edit_buttons"),
     ("adm_set_card", "💳 تنظیم شماره کارت", "adm_set_card"),
     ("adm_edit_welcome", "📝 ویرایش پیام خوش‌آمد", "adm_edit_welcome"),
@@ -546,6 +547,23 @@ def admin_wheel_kb(enabled: bool, win_percent, discount_percent, cooldown_hours)
             [InlineKeyboardButton(text=f"🎯 شانس برد: {win_percent}٪", callback_data="adm_wheel_edit_win")],
             [InlineKeyboardButton(text=f"🎁 درصد تخفیف جایزه: {discount_percent}٪", callback_data="adm_wheel_edit_discount")],
             [InlineKeyboardButton(text=f"⏱ فاصله بین چرخش‌ها: {cooldown_hours} ساعت", callback_data="adm_wheel_edit_cooldown")],
+            [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm_back_panel")],
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# یادآوری اتمام سرویس
+# ---------------------------------------------------------------------------
+
+def admin_expiry_kb(enabled: bool, days_before, discount_percent, discount_hours) -> InlineKeyboardMarkup:
+    status_text = "🟢 فعال (بزن غیرفعال شه)" if enabled else "🔴 غیرفعال (بزن فعال شه)"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=status_text, callback_data="adm_expiry_toggle")],
+            [InlineKeyboardButton(text=f"📅 چند روز قبل از اتمام: {days_before} روز", callback_data="adm_expiry_edit_days")],
+            [InlineKeyboardButton(text=f"🎁 درصد تخفیف پیشنهادی: {discount_percent}٪", callback_data="adm_expiry_edit_discount")],
+            [InlineKeyboardButton(text=f"⏱ اعتبار کد تخفیف: {discount_hours} ساعت", callback_data="adm_expiry_edit_hours")],
             [InlineKeyboardButton(text="⬅️ بازگشت", callback_data="adm_back_panel")],
         ]
     )

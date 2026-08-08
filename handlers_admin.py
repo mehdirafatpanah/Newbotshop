@@ -12,6 +12,7 @@ from aiogram.filters import Command
 
 import database as db
 import keyboards as kb
+import order_utils
 from states import (
     AdminAddCategory,
     AdminAddProduct,
@@ -28,6 +29,7 @@ from states import (
     AdminReferralPercent,
     AdminAddReseller,
     AdminEditWheel,
+    AdminEditExpiryReminder,
 )
 
 router = Router()
@@ -282,10 +284,27 @@ async def process_product_price(message: Message, state: FSMContext):
 
 @router.message(AdminAddProduct.waiting_desc)
 async def process_product_desc(message: Message, state: FSMContext):
-    _, role = get_actor_scope(message.from_user.id)
     desc = "" if message.text.strip() == "-" else message.text.strip()
+    await state.update_data(desc=desc)
+    await state.set_state(AdminAddProduct.waiting_duration)
+    await message.answer(
+        "این محصول چند روزه است؟ (فقط عدد، مثلاً 30)\n"
+        "اگه مدت‌زمان مشخصی نداره یا نمی‌خوای یادآوری اتمام سرویس براش فعال باشه، بنویس: -"
+    )
+
+
+@router.message(AdminAddProduct.waiting_duration)
+async def process_product_duration(message: Message, state: FSMContext):
+    _, role = get_actor_scope(message.from_user.id)
+    text = message.text.strip()
+    duration_days = None
+    if text != "-":
+        if not text.isdigit() or int(text) <= 0:
+            await message.answer("لطفاً فقط یک عدد صحیح مثبت (روز) بفرست، یا برای رد شدن بنویس: -")
+            return
+        duration_days = int(text)
     data = await state.get_data()
-    db.add_product(data["category_id"], data["name"], data["price"], desc)
+    db.add_product(data["category_id"], data["name"], data["price"], data["desc"], duration_days)
     await state.clear()
     await message.answer("✅ محصول با موفقیت اضافه شد.", reply_markup=back_to_panel_kb(role))
 
@@ -530,34 +549,10 @@ async def cb_order_approve(call: CallbackQuery, bot: Bot):
         await call.answer("این سفارش قبلاً بررسی شده است.", show_alert=True)
         return
 
-    product = db.get_product(order["product_id"])
-    result = db.take_unused_config(order["product_id"], order["user_id"])
-    if not result:
+    ok = await order_utils.deliver_order(bot, order_id)
+    if not ok:
         await call.answer("⛔️ موجودی این محصول تمام شده! ابتدا لینک جدید اضافه کنید.", show_alert=True)
         return
-
-    db.approve_order(order_id, result["id"])
-
-    # پورسانت زیرمجموعه‌گیری: اگر این اولین خرید تاییدشده‌ی این کاربر باشد و او زیرمجموعه‌ی کسی باشد
-    reward_info = db.reward_referrer_if_first_purchase(order["user_id"], order["final_price"] or product["price"])
-    if reward_info:
-        reward_amount, referrer_id = reward_info
-        try:
-            await bot.send_message(
-                referrer_id,
-                f"🤝 تبریک! یکی از زیرمجموعه‌های شما اولین خرید خود را انجام داد.\n"
-                f"💰 {reward_amount:,} تومان به کیف پول شما اضافه شد.",
-            )
-        except Exception:
-            pass
-
-    try:
-        await bot.send_message(
-            order["user_id"],
-            f"✅ خرید شما تایید شد!\n📦 محصول: {html.escape(product['name'])}\n\n🔗 کانفیگ شما:\n<code>{html.escape(result['link'])}</code>",
-        )
-    except Exception:
-        pass
 
     try:
         await call.message.edit_caption(caption=(call.message.caption or "") + "\n\n✅ تایید شد و کانفیگ ارسال شد.")
@@ -1044,6 +1039,122 @@ async def process_wheel_cooldown(message: Message, state: FSMContext):
     db.set_setting("wheel_cooldown_hours", text)
     await state.clear()
     await message.answer(f"✅ فاصله بین چرخش‌ها روی {text} ساعت تنظیم شد.", reply_markup=kb.admin_panel_kb())
+
+
+# ---------------------------------------------------------------------------
+# یادآوری اتمام سرویس
+# ---------------------------------------------------------------------------
+
+def _expiry_menu_text() -> str:
+    return (
+        "⏰ یادآوری اتمام سرویس\n\n"
+        "چند روز قبل از اینکه سرویسِ خریداری‌شده‌ی یک کاربر تموم بشه، یه پیام یادآوری "
+        "به همراه یه کد تخفیفِ محدود (فقط برای همون روزها معتبره) براش ارسال می‌شه تا "
+        "زودتر تمدید کنه.\n\n"
+        "⚠️ این قابلیت فقط برای محصولاتی کار می‌کنه که موقع ساختشون «چند روزه بودن» "
+        "براشون مشخص شده باشه."
+    )
+
+
+@router.callback_query(F.data == "adm_expiry_menu")
+async def cb_admin_expiry_menu(call: CallbackQuery):
+    if not admin_only(call.from_user.id):
+        return await call.answer()
+    enabled = db.get_setting("expiry_reminder_enabled", "1") == "1"
+    days_before = db.get_setting("expiry_reminder_days_before", "5")
+    discount_percent = db.get_setting("expiry_reminder_discount_percent", "20")
+    discount_hours = db.get_setting("expiry_reminder_discount_hours", "24")
+    await call.message.edit_text(
+        _expiry_menu_text(),
+        reply_markup=kb.admin_expiry_kb(enabled, days_before, discount_percent, discount_hours),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "adm_expiry_toggle")
+async def cb_admin_expiry_toggle(call: CallbackQuery):
+    if not admin_only(call.from_user.id):
+        return await call.answer()
+    current = db.get_setting("expiry_reminder_enabled", "1")
+    db.set_setting("expiry_reminder_enabled", "0" if current == "1" else "1")
+    enabled = db.get_setting("expiry_reminder_enabled", "1") == "1"
+    days_before = db.get_setting("expiry_reminder_days_before", "5")
+    discount_percent = db.get_setting("expiry_reminder_discount_percent", "20")
+    discount_hours = db.get_setting("expiry_reminder_discount_hours", "24")
+    await call.message.edit_text(
+        _expiry_menu_text(),
+        reply_markup=kb.admin_expiry_kb(enabled, days_before, discount_percent, discount_hours),
+    )
+    await call.answer("✅ فعال شد." if enabled else "غیرفعال شد.")
+
+
+@router.callback_query(F.data == "adm_expiry_edit_days")
+async def cb_admin_expiry_edit_days(call: CallbackQuery, state: FSMContext):
+    if not admin_only(call.from_user.id):
+        return await call.answer()
+    await state.set_state(AdminEditExpiryReminder.waiting_days_before)
+    await call.message.edit_text(
+        "چند روز قبل از اتمام سرویس، یادآوری ارسال بشه؟ یک عدد بفرست (مثلاً 5):",
+        reply_markup=kb.admin_back_kb("adm_expiry_menu"),
+    )
+    await call.answer()
+
+
+@router.message(AdminEditExpiryReminder.waiting_days_before)
+async def process_expiry_days(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit() or int(text) <= 0:
+        await message.answer("لطفاً فقط یک عدد صحیح مثبت بفرست.")
+        return
+    db.set_setting("expiry_reminder_days_before", text)
+    await state.clear()
+    await message.answer(f"✅ یادآوری روی {text} روز قبل از اتمام تنظیم شد.", reply_markup=kb.admin_panel_kb())
+
+
+@router.callback_query(F.data == "adm_expiry_edit_discount")
+async def cb_admin_expiry_edit_discount(call: CallbackQuery, state: FSMContext):
+    if not admin_only(call.from_user.id):
+        return await call.answer()
+    await state.set_state(AdminEditExpiryReminder.waiting_discount_percent)
+    await call.message.edit_text(
+        "کد تخفیف یادآوری چند درصد باشه؟ یک عدد بین 1 تا 100 بفرست:",
+        reply_markup=kb.admin_back_kb("adm_expiry_menu"),
+    )
+    await call.answer()
+
+
+@router.message(AdminEditExpiryReminder.waiting_discount_percent)
+async def process_expiry_discount(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit() or not (1 <= int(text) <= 100):
+        await message.answer("لطفاً فقط یک عدد بین 1 تا 100 ارسال کن.")
+        return
+    db.set_setting("expiry_reminder_discount_percent", text)
+    await state.clear()
+    await message.answer(f"✅ درصد تخفیف یادآوری روی {text}٪ تنظیم شد.", reply_markup=kb.admin_panel_kb())
+
+
+@router.callback_query(F.data == "adm_expiry_edit_hours")
+async def cb_admin_expiry_edit_hours(call: CallbackQuery, state: FSMContext):
+    if not admin_only(call.from_user.id):
+        return await call.answer()
+    await state.set_state(AdminEditExpiryReminder.waiting_discount_hours)
+    await call.message.edit_text(
+        "کد تخفیف یادآوری چند ساعت اعتبار داشته باشه؟ یک عدد بفرست (مثلاً 24):",
+        reply_markup=kb.admin_back_kb("adm_expiry_menu"),
+    )
+    await call.answer()
+
+
+@router.message(AdminEditExpiryReminder.waiting_discount_hours)
+async def process_expiry_hours(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit() or int(text) <= 0:
+        await message.answer("لطفاً فقط یک عدد صحیح مثبت (ساعت) بفرست.")
+        return
+    db.set_setting("expiry_reminder_discount_hours", text)
+    await state.clear()
+    await message.answer(f"✅ اعتبار کد تخفیف روی {text} ساعت تنظیم شد.", reply_markup=kb.admin_panel_kb())
 
 
 # ---------------------------------------------------------------------------
